@@ -27,6 +27,8 @@
   .scale button { padding:14px 4px; display:flex; flex-direction:column; align-items:center; gap:2px; }
   .scale button b { font-size:1.4rem; }
   .scale button span { font-size:.78rem; color:var(--muted); }
+  .scale button.sel { background:var(--accent); color:var(--accent-fg); border-color:var(--accent); }
+  .scale button.sel span { color:var(--accent-fg); }
   .status { min-height:1.6em; color:var(--muted); font-size:.95rem; margin:10px 0; }
   ul { padding-left:20px; margin:0 0 14px; }
   textarea { width:100%; font:inherit; background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:10px; }
@@ -44,7 +46,23 @@ const PROMPTS = ['EA', 'EB', 'EC', 'ED'];
 const RENDERS = [1, 2];
 const PRACTICE = [];   // no practice block (put clip ids here, e.g. ['practice_low'], to add one)
 const ATTENTION = [];   // no attention checks (add clip ids here, e.g. ['attn_1','attn_2'], to use them)
-const QUESTION = 'How good is this clip overall?';
+const BLOCK_BY_PROMPT = true;   // true: clips from the same prompt (different generators) are rated together, one set per prompt
+const DIMS = {
+  quality: {
+    name: 'Audio quality',
+    question: 'How good is the audio quality?',
+    definition: 'How clean and well-produced the <b>sound</b> is: clarity, a balanced mix, natural-sounding instruments and synths, ' +
+                'and the absence of noise, distortion, glitches or artificial &ldquo;digital&rdquo; artifacts. ' +
+                'Judge the sound only, not whether you like the style or the composition.'
+  },
+  musicality: {
+    name: 'Musicality',
+    question: 'How good is the musicality?',
+    definition: 'How good the <b>music itself</b> is: groove and rhythm, melody and harmony, interesting development ' +
+                '(build-ups, variation), and whether it feels like a coherent, intentional piece a producer might make. ' +
+                'Judge the music, not the recording quality.'
+  }
+};
 const LABELS = ['Bad', 'Poor', 'Fair', 'Good', 'Excellent'];
 const ENDPOINT = '';      // REQUIRED: paste your Google Apps Script web-app URL here, or nothing is saved
 if (!ENDPOINT) console.warn('ENDPOINT is empty: responses are NOT being saved anywhere.');
@@ -59,9 +77,10 @@ const params = new URLSearchParams(location.search);
 const pid = (params.get('pid') || '').replace(/[^\w-]/g, '') ||
             'P' + Math.random().toString(36).slice(2, 8).toUpperCase();
 const rows = [];                         // every trial, in memory
-const FIELDS = ['participant_id', 'block_order', 'trial_kind', 'presentation_index', 'clip_id', 'rating', 'rt',
+const FIELDS = ['participant_id', 'block_order', 'trial_kind', 'presentation_index', 'prompt', 'set_index', 'clip_id', 'rating_quality', 'rating_musicality', 'dim_order', 'rt',
                 'timestamp', 'user_agent'];
 let sendFailures = 0;
+const DIM_ORDER = shuffle(['quality', 'musicality']);   // question order is randomized once per participant
 
 function shuffle(a) {                    // Fisher-Yates with crypto randomness
   a = a.slice();
@@ -90,48 +109,59 @@ function csv() {  // kept for debugging: type csv() in the browser console
   return [FIELDS.join(',')].concat(rows.map(r => FIELDS.map(f => q(r[f])).join(','))).join('\n');
 }
 
-/* One trial: play once (cannot pause or replay), then rate with buttons or keys 1-5. */
-function playTrial({ title, clip, rated, progress }) {
+/* One trial: play once (cannot pause or replay), then rate BOTH dimensions (buttons or keys 1-5), then Next. */
+function playTrial({ title, clip, progress }) {
   return new Promise(resolve => {
     const audio = new Audio(AUDIO_DIR + clip + EXT);
     audio.preload = 'auto';
-    let t0 = null, rating = null, played = false, done = false;
+    let t0 = null, played = false, done = false;
+    const ans = {};
+    const block = d => `
+      <div class="dim" data-dim="${d}">
+        <p style="margin:18px 0 4px"><b>${DIMS[d].question}</b></p>
+        <p class="muted" style="margin:0 0 6px">${DIMS[d].definition}</p>
+        <div class="scale">${LABELS.map((l, k) => `<button data-v="${k + 1}" disabled><b>${k + 1}</b><span>${l}</span></button>`).join('')}</div>
+      </div>`;
     show(`
       <div class="progress"><div style="width:${Math.round(progress * 100)}%"></div></div>
       <h1>${title}</h1>
       <div class="center"><button class="primary" id="play">&#9654;&nbsp; Play clip</button></div>
       <div class="status" id="status">Press play. The clip plays once, in full.</div>
-      ${rated ? `<p class="center"><b>${QUESTION}</b></p>
-      <div class="scale">${LABELS.map((l, i) => `<button data-v="${i + 1}" disabled><b>${i + 1}</b><span>${l}</span></button>`).join('')}</div>
-      <p class="muted center">You can answer with the keys 1&ndash;5 once the clip has finished.</p>`
-      : `<div class="center"><button class="primary" id="next" disabled>Continue</button></div>`}
+      ${DIM_ORDER.map(block).join('')}
+      <div class="center" style="margin-top:18px"><button class="primary" id="next" disabled>Next</button></div>
+      <p class="muted center">After the clip ends you can also answer with the keys 1&ndash;5 (first question, then second).</p>
     `);
     const status = document.getElementById('status');
     const play = document.getElementById('play');
-    const btns = [...document.querySelectorAll('.scale button')];
     const next = document.getElementById('next');
+    const groups = Object.fromEntries([...document.querySelectorAll('.dim')].map(g => [g.dataset.dim, g]));
 
-    const finish = (v) => {
-      if (done) return; done = true;
-      document.removeEventListener('keydown', onKey);
-      resolve({ rating: v, rt: t0 == null ? '' : +((performance.now() - t0) / 1000).toFixed(2) });
+    const mark = d => {
+      [...groups[d].querySelectorAll('button')].forEach(b => b.classList.toggle('sel', +b.dataset.v === ans[d]));
+      next.disabled = !(played && DIM_ORDER.every(k => ans[k]));
     };
-    const enable = () => {
-      t0 = performance.now(); played = true;
-      status.textContent = rated ? 'Now rate the clip.' : 'Done.';
-      btns.forEach(b => b.disabled = false);
-      if (next) next.disabled = false;
-    };
+    const set = (d, v) => { if (!played) return; ans[d] = v; mark(d); };
     const onKey = e => {
-      if (!played || !rated) return;
-      if (/^[1-5]$/.test(e.key)) finish(+e.key);
+      if (!played || !/^[1-5]$/.test(e.key)) return;
+      const d = DIM_ORDER.find(k => !ans[k]);
+      if (d) set(d, +e.key);
     };
     document.addEventListener('keydown', onKey);
-    btns.forEach(b => b.addEventListener('click', () => finish(+b.dataset.v)));
-    if (next) next.addEventListener('click', () => finish(null));
+    DIM_ORDER.forEach(d => groups[d].querySelectorAll('button').forEach(b =>
+      b.addEventListener('click', () => set(d, +b.dataset.v))));
 
+    next.addEventListener('click', () => {
+      if (done || next.disabled) return; done = true;
+      document.removeEventListener('keydown', onKey);
+      resolve({ quality: ans.quality, musicality: ans.musicality, rt: +((performance.now() - t0) / 1000).toFixed(2) });
+    });
+    const enable = () => {
+      t0 = performance.now(); played = true;
+      status.textContent = 'Now rate the clip on both questions.';
+      document.querySelectorAll('.scale button').forEach(b => b.disabled = false);
+    };
     play.addEventListener('click', () => {
-      play.disabled = true; status.textContent = 'Playing…';
+      play.disabled = true; status.textContent = 'Playing\u2026';
       audio.play().catch(() => {
         status.textContent = 'Could not play the audio. Check your volume and connection, then reload this page.';
       });
@@ -146,13 +176,14 @@ function playTrial({ title, clip, rated, progress }) {
 async function main() {
   show(`
     <h1>AIGC Electronic Music Evaluation (MOS)</h1>
-    <p>You will hear short music clips, one at a time, and rate each one for how good it is overall.
-       It takes about 15 minutes.</p>
+    <p>You will hear short music clips, one at a time, and rate each one on <b>two questions</b>.
+       It takes about 20 minutes.</p>
     <ul>
       <li>Use <b>headphones</b> in a quiet place, and set a comfortable volume before you start. Please do not change it during the study.</li>
       <li>Each clip is about 20 seconds and plays <b>once</b>. Listen to the whole clip, then rate it.</li>
-      <li>Rate on a scale from 1 (Bad) to 5 (Excellent). There are no right answers; we want your own impression.</li>
-      <li>Please use the whole scale: some clips should get low scores and some high ones.</li>
+      <li><b>Audio quality</b>: ${DIMS.quality.definition}</li>
+      <li><b>Musicality</b>: ${DIMS.musicality.definition}</li>
+      <li>Rate each from 1 (Bad) to 5 (Excellent). There are no right answers; we want your own impression. Please use the whole scale.</li>
     </ul>
     <p class="muted">[IRB CONSENT TEXT HERE: purpose, voluntary participation, what data is collected, how it is stored,
        contact information. Replace with your approved wording.]</p>
@@ -166,20 +197,42 @@ async function main() {
           <div class="center"><button class="primary" id="go">Start practice</button></div>`);
     await wait('go');
     for (let i = 0; i < PRACTICE.length; i++) {
-      await playTrial({ title: `Practice ${i + 1} of ${PRACTICE.length}`, clip: PRACTICE[i], rated: false, progress: 0 });
-      record({ trial_kind: 'practice', presentation_index: i + 1, clip_id: PRACTICE[i], rating: '' });
+      await playTrial({ title: `Practice ${i + 1} of ${PRACTICE.length}`, clip: PRACTICE[i], progress: 0 });
+      record({ trial_kind: 'practice', presentation_index: i + 1, clip_id: PRACTICE[i], dim_order: DIM_ORDER.join('>') });
     }
   }
 
-  show(`<h1>Now the rating begins</h1><p>Rate every clip from 1 (Bad) to 5 (Excellent). Use the whole scale.</p>
+  show(`<h1>Now the rating begins</h1><p>Rate every clip on audio quality and on musicality, from 1 (Bad) to 5 (Excellent). Use the whole scale.</p>
         <div class="center"><button class="primary" id="go">Begin</button></div>`);
   await wait('go');
 
-  const items = shuffle(STUDY.map(c => [c, 'study']).concat(ATTENTION.map(c => [c, 'attention_check'])));
-  for (let i = 0; i < items.length; i++) {
-    const [clip, kind] = items[i];
-    const r = await playTrial({ title: `Clip ${i + 1} of ${items.length}`, clip, rated: true, progress: i / items.length });
-    record({ trial_kind: kind, presentation_index: i + 1, clip_id: clip, rating: r.rating, rt: r.rt });
+  // Build the order. With BLOCK_BY_PROMPT: sets of 6 clips sharing one prompt (3 generators x 2 renders),
+  // set order random, clip order inside each set random. Attention checks (if any) are placed at random.
+  let seq = [];
+  if (BLOCK_BY_PROMPT) {
+    shuffle(PROMPTS).forEach((p, si) => {
+      const ids = shuffle(STUDY.filter(c => c.split('_')[1] === p));
+      ids.forEach(c => seq.push({ clip: c, kind: 'study', prompt: p, set: si + 1 }));
+    });
+  } else {
+    shuffle(STUDY).forEach(c => seq.push({ clip: c, kind: 'study', prompt: c.split('_')[1], set: '' }));
+  }
+  ATTENTION.forEach(c => seq.splice(Math.floor(Math.random() * (seq.length + 1)), 0,
+                                    { clip: c, kind: 'attention_check', prompt: '', set: '' }));
+  let lastSet = null;
+  for (let i = 0; i < seq.length; i++) {
+    const t = seq[i];
+    if (BLOCK_BY_PROMPT && t.kind === 'study' && t.set !== lastSet) {
+      lastSet = t.set;
+      show(`<h1>Set ${t.set} of ${PROMPTS.length}</h1>
+            <p>The next ${GENERATORS.length * RENDERS.length} clips are a new set. Rate each clip on its own.</p>
+            <div class="center"><button class="primary" id="go">Continue</button></div>`);
+      await wait('go');
+    }
+    const r = await playTrial({ title: `Clip ${i + 1} of ${seq.length}`, clip: t.clip, progress: i / seq.length });
+    record({ trial_kind: t.kind, presentation_index: i + 1, prompt: t.prompt, set_index: t.set, clip_id: t.clip,
+             rating_quality: r.quality, rating_musicality: r.musicality,
+             dim_order: DIM_ORDER.join('>'), rt: r.rt });
   }
 
   show(`<h1>Thank you!</h1>
