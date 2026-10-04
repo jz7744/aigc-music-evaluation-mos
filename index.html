@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AIGC Electronic Music Evaluation (MOS)</title>
+<style>
+  :root { --bg:#fafaf7; --fg:#1d1d1b; --muted:#6b6b66; --card:#fff; --line:#dcdcd4; --accent:#2f5d50; --accent-fg:#fff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161715; --fg:#ecece6; --muted:#9a9a92; --card:#1f201e; --line:#363733; --accent:#7fb8a4; --accent-fg:#10201a; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:17px/1.55 system-ui,-apple-system,Segoe UI,sans-serif; }
+  main { max-width:640px; margin:0 auto; padding:32px 16px 64px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:28px 24px; }
+  h1 { font-size:1.5rem; margin:0 0 12px; }
+  p { margin:0 0 14px; }
+  .muted { color:var(--muted); font-size:.92rem; }
+  button { font:inherit; cursor:pointer; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--fg); padding:12px 20px; }
+  button.primary { background:var(--accent); color:var(--accent-fg); border-color:var(--accent); }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  button:focus-visible { outline:3px solid var(--accent); outline-offset:2px; }
+  .center { text-align:center; }
+  .progress { height:6px; background:var(--line); border-radius:3px; margin-bottom:24px; overflow:hidden; }
+  .progress > div { height:100%; background:var(--accent); width:0; transition:width .2s; }
+  .scale { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin:20px 0 4px; }
+  .scale button { padding:14px 4px; display:flex; flex-direction:column; align-items:center; gap:2px; }
+  .scale button b { font-size:1.4rem; }
+  .scale button span { font-size:.78rem; color:var(--muted); }
+  .status { min-height:1.6em; color:var(--muted); font-size:.95rem; margin:10px 0; }
+  ul { padding-left:20px; margin:0 0 14px; }
+  textarea { width:100%; font:inherit; background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:10px; }
+</style>
+</head>
+<body>
+<main><div class="card" id="screen" aria-live="polite"></div></main>
+
+<script>
+/* ===================== CONFIG: edit this block ===================== */
+const AUDIO_DIR = 'audio/';
+const EXT = '.wav';
+const GENERATORS = ['suno', 'mureka', 'acestep'];
+const PROMPTS = ['EA', 'EB', 'EC', 'ED'];
+const RENDERS = [1, 2];
+const PRACTICE = [];   // no practice block (put clip ids here, e.g. ['practice_low'], to add one)
+const ATTENTION = [];   // no attention checks (add clip ids here, e.g. ['attn_1','attn_2'], to use them)
+const QUESTION = 'How good is this clip overall?';
+const LABELS = ['Bad', 'Poor', 'Fair', 'Good', 'Excellent'];
+const ENDPOINT = '';      // REQUIRED: paste your Google Apps Script web-app URL here, or nothing is saved
+if (!ENDPOINT) console.warn('ENDPOINT is empty: responses are NOT being saved anywhere.');
+const STUDY_NAME = 'rating-study';
+/* =================================================================== */
+
+const STUDY = [];
+for (const g of GENERATORS) for (const p of PROMPTS) for (const r of RENDERS) STUDY.push(`${g}_${p}_${r}`);
+
+const $ = document.getElementById('screen');
+const params = new URLSearchParams(location.search);
+const pid = (params.get('pid') || '').replace(/[^\w-]/g, '') ||
+            'P' + Math.random().toString(36).slice(2, 8).toUpperCase();
+const rows = [];                         // every trial, in memory
+const FIELDS = ['participant_id', 'block_order', 'trial_kind', 'presentation_index', 'clip_id', 'rating', 'rt',
+                'timestamp', 'user_agent'];
+let sendFailures = 0;
+
+function shuffle(a) {                    // Fisher-Yates with crypto randomness
+  a = a.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+function show(html) { $.innerHTML = html; window.scrollTo(0, 0); }
+function wait(id) { return new Promise(res => document.getElementById(id).addEventListener('click', res, { once: true })); }
+
+function record(row) {
+  row = { participant_id: pid, block_order: 'mos', user_agent: navigator.userAgent,
+          timestamp: new Date().toISOString(), ...row };
+  rows.push(row);
+  try { localStorage.setItem(STUDY_NAME + '_' + pid, JSON.stringify(rows)); } catch (e) {}
+  if (ENDPOINT) {
+    fetch(ENDPOINT, { method: 'POST', mode: 'no-cors', keepalive: true,
+                      headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(row) })
+      .catch(() => { sendFailures++; });
+  }
+}
+function csv() {  // kept for debugging: type csv() in the browser console
+  const q = v => { v = v == null ? '' : String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+  return [FIELDS.join(',')].concat(rows.map(r => FIELDS.map(f => q(r[f])).join(','))).join('\n');
+}
+
+/* One trial: play once (cannot pause or replay), then rate with buttons or keys 1-5. */
+function playTrial({ title, clip, rated, progress }) {
+  return new Promise(resolve => {
+    const audio = new Audio(AUDIO_DIR + clip + EXT);
+    audio.preload = 'auto';
+    let t0 = null, rating = null, played = false, done = false;
+    show(`
+      <div class="progress"><div style="width:${Math.round(progress * 100)}%"></div></div>
+      <h1>${title}</h1>
+      <div class="center"><button class="primary" id="play">&#9654;&nbsp; Play clip</button></div>
+      <div class="status" id="status">Press play. The clip plays once, in full.</div>
+      ${rated ? `<p class="center"><b>${QUESTION}</b></p>
+      <div class="scale">${LABELS.map((l, i) => `<button data-v="${i + 1}" disabled><b>${i + 1}</b><span>${l}</span></button>`).join('')}</div>
+      <p class="muted center">You can answer with the keys 1&ndash;5 once the clip has finished.</p>`
+      : `<div class="center"><button class="primary" id="next" disabled>Continue</button></div>`}
+    `);
+    const status = document.getElementById('status');
+    const play = document.getElementById('play');
+    const btns = [...document.querySelectorAll('.scale button')];
+    const next = document.getElementById('next');
+
+    const finish = (v) => {
+      if (done) return; done = true;
+      document.removeEventListener('keydown', onKey);
+      resolve({ rating: v, rt: t0 == null ? '' : +((performance.now() - t0) / 1000).toFixed(2) });
+    };
+    const enable = () => {
+      t0 = performance.now(); played = true;
+      status.textContent = rated ? 'Now rate the clip.' : 'Done.';
+      btns.forEach(b => b.disabled = false);
+      if (next) next.disabled = false;
+    };
+    const onKey = e => {
+      if (!played || !rated) return;
+      if (/^[1-5]$/.test(e.key)) finish(+e.key);
+    };
+    document.addEventListener('keydown', onKey);
+    btns.forEach(b => b.addEventListener('click', () => finish(+b.dataset.v)));
+    if (next) next.addEventListener('click', () => finish(null));
+
+    play.addEventListener('click', () => {
+      play.disabled = true; status.textContent = 'Playing…';
+      audio.play().catch(() => {
+        status.textContent = 'Could not play the audio. Check your volume and connection, then reload this page.';
+      });
+    }, { once: true });
+    audio.addEventListener('ended', enable, { once: true });
+    audio.addEventListener('error', () => {
+      status.textContent = 'This clip failed to load. Please check your connection and reload the page.';
+    });
+  });
+}
+
+async function main() {
+  show(`
+    <h1>AIGC Electronic Music Evaluation (MOS)</h1>
+    <p>You will hear short music clips, one at a time, and rate each one for how good it is overall.
+       It takes about 15 minutes.</p>
+    <ul>
+      <li>Use <b>headphones</b> in a quiet place, and set a comfortable volume before you start. Please do not change it during the study.</li>
+      <li>Each clip is about 20 seconds and plays <b>once</b>. Listen to the whole clip, then rate it.</li>
+      <li>Rate on a scale from 1 (Bad) to 5 (Excellent). There are no right answers; we want your own impression.</li>
+      <li>Please use the whole scale: some clips should get low scores and some high ones.</li>
+    </ul>
+    <p class="muted">[IRB CONSENT TEXT HERE: purpose, voluntary participation, what data is collected, how it is stored,
+       contact information. Replace with your approved wording.]</p>
+    <div class="center"><button class="primary" id="go">I consent &mdash; start</button></div>
+    <p class="muted center">Your participant code: <b>${pid}</b></p>`);
+  await wait('go');
+
+  if (PRACTICE.length) {
+    show(`<h1>Practice</h1><p>First, ${PRACTICE.length} practice clips. They are not rated; they show the range of quality you will hear.</p>
+          <p>Set a comfortable volume now and <b>do not change it</b> during the study.</p>
+          <div class="center"><button class="primary" id="go">Start practice</button></div>`);
+    await wait('go');
+    for (let i = 0; i < PRACTICE.length; i++) {
+      await playTrial({ title: `Practice ${i + 1} of ${PRACTICE.length}`, clip: PRACTICE[i], rated: false, progress: 0 });
+      record({ trial_kind: 'practice', presentation_index: i + 1, clip_id: PRACTICE[i], rating: '' });
+    }
+  }
+
+  show(`<h1>Now the rating begins</h1><p>Rate every clip from 1 (Bad) to 5 (Excellent). Use the whole scale.</p>
+        <div class="center"><button class="primary" id="go">Begin</button></div>`);
+  await wait('go');
+
+  const items = shuffle(STUDY.map(c => [c, 'study']).concat(ATTENTION.map(c => [c, 'attention_check'])));
+  for (let i = 0; i < items.length; i++) {
+    const [clip, kind] = items[i];
+    const r = await playTrial({ title: `Clip ${i + 1} of ${items.length}`, clip, rated: true, progress: i / items.length });
+    record({ trial_kind: kind, presentation_index: i + 1, clip_id: clip, rating: r.rating, rt: r.rt });
+  }
+
+  show(`<h1>Thank you!</h1>
+        <p>Your responses have been recorded. You can now close this page.</p>
+        <p class="muted">Your participant code: <b>${pid}</b></p>`);
+}
+main();
+window.__rows = rows;   // for testing
+</script>
+</body>
+</html>
