@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AIGC Electronic Music Evaluation (AB)</title>
+<style>
+  :root { --bg:#fafaf7; --fg:#1d1d1b; --muted:#6b6b66; --card:#fff; --line:#dcdcd4; --accent:#2f5d50; --accent-fg:#fff; --ok:#2f7d4f; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161715; --fg:#ecece6; --muted:#9a9a92; --card:#1f201e; --line:#363733; --accent:#7fb8a4; --accent-fg:#10201a; --ok:#7fc79a; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:17px/1.55 system-ui,-apple-system,Segoe UI,sans-serif; }
+  main { max-width:640px; margin:0 auto; padding:32px 16px 64px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:28px 24px; }
+  h1 { font-size:1.5rem; margin:0 0 12px; }
+  p { margin:0 0 14px; }
+  .muted { color:var(--muted); font-size:.92rem; }
+  button { font:inherit; cursor:pointer; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--fg); padding:12px 20px; }
+  button.primary { background:var(--accent); color:var(--accent-fg); border-color:var(--accent); }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  button:focus-visible { outline:3px solid var(--accent); outline-offset:2px; }
+  .center { text-align:center; }
+  .progress { height:6px; background:var(--line); border-radius:3px; margin-bottom:24px; overflow:hidden; }
+  .progress > div { height:100%; background:var(--accent); width:0; transition:width .2s; }
+  .clips { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin:18px 0 8px; }
+  .clip { text-align:center; }
+  .clip button { width:100%; padding:18px 6px; font-size:1.1rem; }
+  .clip button.on { background:var(--accent); color:var(--accent-fg); border-color:var(--accent); }
+  .clip .st { font-size:.85rem; color:var(--muted); margin-top:4px; min-height:1.3em; }
+  .clip .st.ok { color:var(--ok); }
+  .choose { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:22px 0 6px; }
+  .choose button { padding:16px 8px; }
+  ul { padding-left:20px; margin:0 0 14px; }
+</style>
+</head>
+<body>
+<main><div class="card" id="screen" aria-live="polite"></div></main>
+
+<script>
+/* ===================== CONFIG: edit this block ===================== */
+const MODE = 'ab';                       // 'abx' (A, B and reference X) or 'choice' (A and B only)
+const AUDIO_DIR = 'audio/';
+const EXT = '.wav';
+const REFS = ['ref_1', 'ref_2', 'ref_3'];      // reference tracks used as X (abx mode only)
+const MIN_LISTEN = 4.0;                        // seconds of EACH clip that must be heard before choosing
+const QUESTION = 'Which clip is better overall?';
+const ENDPOINT = '';      // REQUIRED: paste your Google Apps Script web-app URL here, or nothing is saved
+if (!ENDPOINT) console.warn('ENDPOINT is empty: responses are NOT being saved anywhere.');
+const STUDY_NAME = 'rating-study';
+/* =================================================================== */
+
+const DESIGN = {"clips":["suno_EA_1","suno_EA_2","suno_EB_1","suno_EB_2","suno_EC_1","suno_EC_2","suno_ED_1","suno_ED_2","mureka_EA_1","mureka_EA_2","mureka_EB_1","mureka_EB_2","mureka_EC_1","mureka_EC_2","mureka_ED_1","mureka_ED_2","acestep_EA_1","acestep_EA_2","acestep_EB_1","acestep_EB_2","acestep_EC_1","acestep_EC_2","acestep_ED_1","acestep_ED_2"],"assignments":{"0":[["acestep_EC_2","suno_EC_1"],["acestep_EA_1","mureka_EA_1"],["acestep_ED_2","suno_ED_2"],["acestep_EB_1","suno_EB_2"],["acestep_EA_2","suno_EA_2"],["acestep_EA_1","mureka_EA_2"],["acestep_EC_1","suno_EC_2"],["mureka_ED_2","suno_ED_1"],["acestep_EA_2","suno_EA_1"],["acestep_EB_2","mureka_EB_2"],["acestep_EA_2","mureka_EA_2"],["acestep_EC_2","mureka_EC_2"],["acestep_EB_2","mureka_EB_1"],["mureka_EC_1","suno_EC_2"],["acestep_EC_1","suno_EC_1"],["acestep_EB_2","suno_EB_2"],["acestep_EC_2","suno_EC_1"],["acestep_EC_2","mureka_EC_1"],["mureka_EA_1","suno_EA_1"],["mureka_EB_1","suno_EB_1"],["acestep_ED_1","suno_ED_2"],["acestep_EB_2","suno_EB_1"],["acestep_EC_2","suno_EC_2"],["acestep_ED_2","mureka_ED_1"],["mureka_EA_1","suno_EA_1"],["acestep_EC_2","mureka_EC_2"],["acestep_EB_1","mureka_EB_1"],["mureka_ED_2","suno_ED_2"],["mureka_ED_1","suno_ED_2"],["acestep_ED_1","mureka_ED_1"]],"1":[["acestep_EB_1","suno_EB_1"],["mureka_EB_2","suno_EB_2"],["mureka_ED_1","suno_ED_1"],["mureka_EC_2","suno_EC_2"],["acestep_EA_1","suno_EA_1"],["mureka_EA_2","suno_EA_2"],["acestep_EC_1","mureka_EC_1"],["acestep_ED_1","mureka_ED_2"],["acestep_ED_2","mureka_ED_2"],["mureka_EB_1","suno_EB_2"],["acestep_EC_1","mureka_EC_2"],["acestep_EB_1","suno_EB_2"],["acestep_ED_2","suno_ED_1"],["acestep_EA_2","mureka_EA_1"],["acestep_ED_1","suno_ED_1"],["mureka_EA_2","suno_EA_1"],["mureka_EC_1","suno_EC_1"],["mureka_EA_1","suno_EA_2"],["acestep_ED_1","mureka_ED_1"],["acestep_EC_1","suno_EC_1"],["mureka_EA_2","suno_EA_1"],["acestep_EA_2","suno_EA_2"],["mureka_EB_2","suno_EB_1"],["acestep_EB_1","mureka_EB_2"],["mureka_EC_2","suno_EC_1"],["mureka_ED_2","suno_ED_1"],["mureka_ED_2","suno_ED_1"],["acestep_EA_1","suno_EA_2"],["mureka_EC_1","suno_EC_2"],["acestep_EB_1","mureka_EB_2"]],"2":[["acestep_EC_2","mureka_EC_1"],["acestep_EA_1","suno_EA_1"],["mureka_EB_2","suno_EB_2"],["mureka_EC_2","suno_EC_1"],["acestep_EA_2","suno_EA_1"],["mureka_ED_2","suno_ED_2"],["mureka_EB_1","suno_EB_1"],["acestep_ED_2","suno_ED_2"],["mureka_EC_1","suno_EC_1"],["acestep_EA_1","mureka_EA_1"],["acestep_ED_2","suno_ED_1"],["mureka_EB_2","suno_EB_1"],["acestep_EA_1","mureka_EA_2"],["acestep_EB_2","suno_EB_2"],["acestep_EB_2","mureka_EB_2"],["acestep_EB_2","suno_EB_1"],["acestep_ED_2","mureka_ED_2"],["mureka_EA_2","suno_EA_2"],["mureka_ED_1","suno_ED_2"],["acestep_EA_2","mureka_EA_1"],["acestep_EB_2","suno_EB_2"],["acestep_EC_1","mureka_EC_2"],["acestep_ED_2","mureka_ED_1"],["acestep_EB_2","mureka_EB_1"],["mureka_EC_2","suno_EC_2"],["acestep_ED_2","suno_ED_2"],["mureka_EA_1","suno_EA_2"],["acestep_ED_2","mureka_ED_1"],["acestep_ED_1","suno_ED_2"],["acestep_EC_2","suno_EC_2"]],"3":[["acestep_EC_1","suno_EC_2"],["acestep_EC_2","suno_EC_1"],["mureka_EA_2","suno_EA_2"],["mureka_EA_2","suno_EA_2"],["mureka_EB_2","suno_EB_1"],["acestep_EB_1","suno_EB_1"],["acestep_EA_2","mureka_EA_2"],["acestep_EA_1","suno_EA_1"],["mureka_EB_1","suno_EB_2"],["acestep_ED_1","mureka_ED_1"],["acestep_EA_1","mureka_EA_2"],["acestep_ED_1","suno_ED_2"],["acestep_EC_1","mureka_EC_1"],["mureka_EA_2","suno_EA_1"],["acestep_ED_1","suno_ED_1"],["acestep_EB_1","mureka_EB_1"],["acestep_EB_1","mureka_EB_2"],["acestep_EC_1","mureka_EC_2"],["acestep_EA_2","mureka_EA_2"],["acestep_EB_1","suno_EB_2"],["acestep_ED_2","suno_ED_1"],["mureka_EA_1","suno_EA_1"],["mureka_EB_1","suno_EB_1"],["acestep_ED_1","suno_ED_2"],["acestep_EC_2","mureka_EC_2"],["acestep_ED_1","mureka_ED_2"],["acestep_EC_1","suno_EC_1"],["acestep_EA_1","suno_EA_2"],["mureka_ED_1","suno_ED_1"],["acestep_EC_2","suno_EC_2"]],"4":[["mureka_ED_2","suno_ED_2"],["acestep_EC_2","mureka_EC_1"],["acestep_EB_1","mureka_EB_1"],["acestep_EB_1","suno_EB_1"],["acestep_EB_2","mureka_EB_2"],["mureka_EC_2","suno_EC_2"],["mureka_EA_1","suno_EA_2"],["acestep_EB_1","suno_EB_1"],["acestep_EA_2","mureka_EA_1"],["mureka_EB_1","suno_EB_2"],["mureka_EB_2","suno_EB_2"],["mureka_EC_2","suno_EC_1"],["mureka_EC_1","suno_EC_2"],["mureka_ED_1","suno_ED_2"],["acestep_ED_2","mureka_ED_2"],["acestep_EB_2","suno_EB_1"],["acestep_ED_1","mureka_ED_2"],["mureka_ED_2","suno_ED_1"],["acestep_EC_1","suno_EC_2"],["acestep_EB_2","suno_EB_1"],["acestep_EC_1","suno_EC_2"],["acestep_EC_1","mureka_EC_1"],["acestep_EA_2","suno_EA_2"],["acestep_EB_2","mureka_EB_1"],["acestep_EA_1","mureka_EA_1"],["acestep_EA_1","suno_EA_2"],["mureka_ED_1","suno_ED_1"],["acestep_EA_2","suno_EA_1"],["acestep_ED_1","suno_ED_1"],["mureka_EC_1","suno_EC_1"]],"5":[["acestep_EC_2","mureka_EC_1"],["acestep_ED_2","mureka_ED_2"],["mureka_EA_1","suno_EA_1"],["acestep_ED_2","suno_ED_2"],["acestep_EA_2","mureka_EA_2"],["acestep_EC_2","mureka_EC_2"],["acestep_EC_1","suno_EC_1"],["acestep_EB_1","mureka_EB_2"],["acestep_EB_2","mureka_EB_2"],["acestep_EB_1","mureka_EB_1"],["mureka_EB_2","suno_EB_2"],["mureka_ED_1","suno_ED_1"],["mureka_EA_2","suno_EA_1"],["acestep_EA_2","suno_EA_1"],["acestep_EC_2","mureka_EC_1"],["acestep_EA_1","mureka_EA_2"],["acestep_EC_2","suno_EC_1"],["acestep_EB_1","suno_EB_2"],["acestep_EA_2","mureka_EA_1"],["acestep_EB_2","suno_EB_2"],["acestep_ED_2","suno_ED_1"],["mureka_EC_2","suno_EC_1"],["mureka_EC_2","suno_EC_2"],["acestep_EB_1","mureka_EB_2"],["acestep_ED_1","mureka_ED_1"],["acestep_EA_1","suno_EA_1"],["acestep_ED_2","mureka_ED_1"],["acestep_EC_2","suno_EC_2"],["mureka_ED_1","suno_ED_2"],["acestep_EA_1","mureka_EA_2"]],"6":[["mureka_EC_1","suno_EC_2"],["mureka_EA_1","suno_EA_2"],["acestep_ED_2","suno_ED_2"],["mureka_EB_2","suno_EB_1"],["acestep_EB_2","suno_EB_1"],["mureka_EA_2","suno_EA_1"],["acestep_ED_1","suno_ED_2"],["mureka_EB_1","suno_EB_2"],["acestep_EC_1","mureka_EC_2"],["mureka_EA_2","suno_EA_2"],["acestep_ED_1","suno_ED_1"],["mureka_EA_1","suno_EA_2"],["mureka_EB_1","suno_EB_1"],["mureka_EC_1","suno_EC_1"],["acestep_EB_1","suno_EB_1"],["acestep_ED_2","mureka_ED_2"],["mureka_ED_2","suno_ED_2"],["acestep_EB_2","mureka_EB_2"],["mureka_ED_2","suno_ED_1"],["acestep_EC_1","suno_EC_1"],["acestep_EB_2","mureka_EB_1"],["acestep_EC_1","suno_EC_2"],["acestep_EA_2","mureka_EA_2"],["acestep_EA_2","suno_EA_2"],["acestep_ED_1","mureka_ED_2"],["mureka_EB_1","suno_EB_2"],["acestep_EA_1","suno_EA_2"],["acestep_EA_1","mureka_EA_1"],["acestep_EC_1","mureka_EC_1"],["acestep_EC_1","mureka_EC_2"]],"7":[["acestep_ED_1","mureka_ED_1"],["acestep_EA_1","mureka_EA_1"],["acestep_ED_2","suno_ED_1"],["mureka_EC_2","suno_EC_1"],["acestep_EB_1","suno_EB_2"],["acestep_EA_2","suno_EA_1"],["acestep_ED_2","mureka_ED_1"],["mureka_EC_1","suno_EC_1"],["acestep_EA_2","mureka_EA_1"],["mureka_EB_2","suno_EB_1"],["acestep_EC_2","suno_EC_1"],["mureka_EA_1","suno_EA_1"],["acestep_ED_2","mureka_ED_1"],["acestep_EC_2","suno_EC_2"],["mureka_EC_2","suno_EC_2"],["acestep_ED_1","suno_ED_1"],["mureka_ED_1","suno_ED_1"],["mureka_EB_2","suno_EB_2"],["mureka_EB_1","suno_EB_1"],["mureka_ED_1","suno_ED_2"],["acestep_EA_2","suno_EA_2"],["mureka_EC_1","suno_EC_2"],["acestep_EB_1","mureka_EB_1"],["acestep_EB_2","suno_EB_2"],["acestep_EA_1","suno_EA_1"],["acestep_EC_2","mureka_EC_2"],["acestep_ED_1","mureka_ED_1"],["acestep_EA_1","suno_EA_2"],["acestep_EC_2","suno_EC_1"],["acestep_EB_2","mureka_EB_1"]],"8":[["acestep_EB_1","suno_EB_2"],["acestep_ED_2","mureka_ED_2"],["acestep_EC_2","suno_EC_2"],["acestep_EB_1","mureka_EB_1"],["acestep_EA_2","mureka_EA_2"],["mureka_EB_2","suno_EB_1"],["acestep_ED_2","suno_ED_2"],["acestep_EA_1","mureka_EA_2"],["acestep_EA_1","mureka_EA_2"],["acestep_EC_1","mureka_EC_2"],["mureka_ED_1","suno_ED_2"],["acestep_EB_2","suno_EB_1"],["mureka_ED_2","suno_ED_1"],["acestep_EB_1","mureka_EB_2"],["acestep_EC_1","suno_EC_1"],["acestep_EC_2","mureka_EC_1"],["mureka_EA_2","suno_EA_2"],["mureka_EA_1","suno_EA_2"],["acestep_EC_2","mureka_EC_2"],["mureka_EB_2","suno_EB_1"],["mureka_EA_1","suno_EA_1"],["acestep_EB_1","suno_EB_2"],["acestep_EC_1","mureka_EC_1"],["mureka_ED_2","suno_ED_2"],["mureka_EA_2","suno_EA_1"],["acestep_EB_2","suno_EB_2"],["acestep_EC_1","suno_EC_2"],["acestep_ED_1","suno_ED_2"],["acestep_EB_1","suno_EB_1"],["acestep_ED_1","mureka_ED_2"]],"9":[["mureka_EB_2","suno_EB_2"],["acestep_ED_2","suno_ED_1"],["acestep_EB_2","mureka_EB_2"],["mureka_ED_1","suno_ED_1"],["mureka_EC_2","suno_EC_1"],["mureka_EC_1","suno_EC_1"],["acestep_EA_2","mureka_EA_1"],["acestep_EB_2","suno_EB_2"],["mureka_EC_1","suno_EC_2"],["mureka_ED_2","suno_ED_2"],["mureka_EC_2","suno_EC_1"],["acestep_EC_1","mureka_EC_1"],["acestep_ED_2","mureka_ED_1"],["mureka_EB_1","suno_EB_1"],["acestep_EA_1","suno_EA_2"],["acestep_EC_2","mureka_EC_1"],["mureka_EC_2","suno_EC_2"],["acestep_EB_2","mureka_EB_1"],["acestep_EA_2","suno_EA_2"],["mureka_EB_1","suno_EB_2"],["acestep_ED_1","mureka_ED_1"],["acestep_EA_2","mureka_EA_2"],["acestep_EA_1","mureka_EA_1"],["acestep_EC_2","suno_EC_1"],["acestep_EB_2","mureka_EB_1"],["acestep_EA_1","suno_EA_2"],["acestep_ED_1","suno_ED_1"],["acestep_EA_2","suno_EA_1"],["acestep_EA_1","suno_EA_1"],["acestep_ED_1","mureka_ED_2"]],"10":[["acestep_EB_2","mureka_EB_2"],["acestep_EB_1","mureka_EB_1"],["acestep_ED_2","mureka_ED_2"],["mureka_EB_2","suno_EB_2"],["acestep_EA_1","mureka_EA_1"],["acestep_EC_1","mureka_EC_2"],["acestep_EC_2","suno_EC_2"],["acestep_EB_1","suno_EB_1"],["mureka_EB_2","suno_EB_2"],["mureka_ED_1","suno_ED_2"],["acestep_EA_1","mureka_EA_1"],["mureka_ED_2","suno_ED_2"],["mureka_EA_2","suno_EA_1"],["mureka_EA_1","suno_EA_1"],["acestep_EB_2","suno_EB_1"],["acestep_EB_1","mureka_EB_2"],["acestep_EC_2","suno_EC_2"],["acestep_ED_2","suno_ED_2"],["acestep_ED_2","suno_ED_1"],["acestep_EA_2","mureka_EA_1"],["mureka_EC_2","suno_EC_2"],["mureka_EA_1","suno_EA_2"],["acestep_EA_1","suno_EA_1"],["acestep_EC_1","suno_EC_2"],["acestep_ED_1","suno_ED_2"],["acestep_EC_2","mureka_EC_2"],["mureka_EA_2","suno_EA_2"],["mureka_EB_1","suno_EB_1"],["mureka_ED_2","suno_ED_1"],["acestep_EC_1","suno_EC_1"]],"11":[["acestep_EB_1","suno_EB_2"],["mureka_EA_2","suno_EA_2"],["acestep_EC_2","mureka_EC_1"],["acestep_EC_2","suno_EC_1"],["mureka_EB_1","suno_EB_1"],["mureka_ED_1","suno_ED_1"],["acestep_EB_1","mureka_EB_1"],["mureka_EC_2","suno_EC_1"],["acestep_EA_1","mureka_EA_2"],["acestep_ED_1","mureka_ED_1"],["acestep_EB_1","suno_EB_1"],["acestep_EA_1","mureka_EA_2"],["acestep_EA_2","suno_EA_2"],["acestep_EA_1","suno_EA_2"],["acestep_ED_2","mureka_ED_1"],["acestep_ED_1","suno_ED_1"],["mureka_EB_1","suno_EB_2"],["acestep_EA_2","mureka_EA_2"],["acestep_EC_1","mureka_EC_1"],["mureka_EA_2","suno_EA_1"],["acestep_EA_2","suno_EA_2"],["mureka_EC_2","suno_EC_1"],["mureka_EC_1","suno_EC_1"],["acestep_ED_2","suno_ED_1"],["acestep_EB_2","suno_EB_2"],["acestep_EC_1","suno_EC_1"],["acestep_EB_1","mureka_EB_2"],["mureka_EC_1","suno_EC_2"],["acestep_EA_2","suno_EA_1"],["acestep_ED_1","mureka_ED_2"]],"12":[["mureka_ED_2","suno_ED_1"],["acestep_EA_1","mureka_EA_1"],["acestep_EA_2","suno_EA_1"],["mureka_ED_2","suno_ED_2"],["mureka_EC_1","suno_EC_2"],["acestep_ED_2","mureka_ED_2"],["mureka_EB_2","suno_EB_2"],["acestep_EB_2","mureka_EB_1"],["acestep_EC_2","mureka_EC_2"],["acestep_EA_1","mureka_EA_1"],["mureka_EC_1","suno_EC_1"],["acestep_EC_1","mureka_EC_2"],["mureka_EB_1","suno_EB_2"],["acestep_EC_1","mureka_EC_1"],["acestep_EB_2","suno_EB_1"],["acestep_EB_2","mureka_EB_2"],["acestep_ED_1","mureka_ED_2"],["acestep_EB_2","suno_EB_2"],["mureka_EB_2","suno_EB_1"],["mureka_EC_2","suno_EC_2"],["acestep_EC_1","suno_EC_2"],["mureka_ED_1","suno_ED_2"],["acestep_EA_1","suno_EA_1"],["mureka_EA_1","suno_EA_2"],["acestep_EC_1","mureka_EC_2"],["acestep_EB_2","mureka_EB_2"],["acestep_ED_2","suno_ED_2"],["acestep_ED_1","suno_ED_2"],["mureka_EA_1","suno_EA_1"],["acestep_EA_2","mureka_EA_1"]],"13":[["acestep_EB_1","mureka_EB_2"],["mureka_EB_1","suno_EB_1"],["acestep_EB_1","suno_EB_1"],["acestep_EA_1","suno_EA_2"],["acestep_EA_2","mureka_EA_2"],["mureka_EB_2","suno_EB_1"],["mureka_ED_1","suno_ED_1"],["acestep_EB_1","mureka_EB_1"],["acestep_EB_1","suno_EB_2"],["mureka_EA_1","suno_EA_2"],["acestep_EB_1","mureka_EB_2"],["mureka_ED_1","suno_ED_2"],["acestep_ED_1","suno_ED_1"],["acestep_ED_2","suno_ED_1"],["mureka_ED_1","suno_ED_1"],["mureka_EA_2","suno_EA_1"],["acestep_EA_2","suno_EA_2"],["acestep_EC_2","mureka_EC_2"],["acestep_EC_2","suno_EC_2"],["acestep_EA_1","suno_EA_1"],["mureka_EC_1","suno_EC_1"],["acestep_ED_1","suno_ED_2"],["mureka_EA_2","suno_EA_2"],["acestep_EC_2","mureka_EC_1"],["acestep_EC_2","suno_EC_1"],["acestep_ED_2","suno_ED_1"],["acestep_ED_2","mureka_ED_1"],["acestep_ED_1","mureka_ED_1"],["acestep_EC_1","suno_EC_1"],["mureka_EC_2","suno_EC_2"]],"14":[["acestep_ED_2","mureka_ED_1"],["acestep_EA_2","suno_EA_1"],["acestep_EC_2","mureka_EC_2"],["acestep_ED_2","mureka_ED_2"],["mureka_EA_2","suno_EA_2"],["acestep_EC_1","suno_EC_1"],["acestep_EA_1","mureka_EA_2"],["acestep_EC_1","mureka_EC_2"],["acestep_EC_1","suno_EC_2"],["mureka_EB_2","suno_EB_2"],["mureka_EC_1","suno_EC_2"],["acestep_EC_1","mureka_EC_2"],["acestep_ED_2","suno_ED_2"],["acestep_ED_1","suno_ED_1"],["acestep_EB_2","mureka_EB_1"],["mureka_EA_2","suno_EA_1"],["acestep_ED_1","mureka_ED_2"],["acestep_EA_2","mureka_EA_2"],["mureka_EB_2","suno_EB_1"],["mureka_EB_2","suno_EB_1"],["acestep_EB_2","mureka_EB_2"],["mureka_EA_1","suno_EA_1"],["mureka_ED_2","suno_ED_2"],["acestep_ED_2","suno_ED_2"],["mureka_ED_2","suno_ED_1"],["acestep_EC_1","mureka_EC_1"],["acestep_EA_2","mureka_EA_1"],["mureka_EB_1","suno_EB_2"],["acestep_EB_2","suno_EB_2"],["acestep_EB_2","suno_EB_1"]],"15":[["acestep_EB_2","suno_EB_1"],["mureka_EB_1","suno_EB_1"],["mureka_EC_2","suno_EC_1"],["acestep_EA_2","suno_EA_1"],["acestep_EA_1","suno_EA_2"],["acestep_ED_1","mureka_ED_1"],["acestep_EC_2","suno_EC_2"],["acestep_EC_2","mureka_EC_1"],["acestep_EA_1","suno_EA_1"],["mureka_ED_1","suno_ED_2"],["mureka_EC_2","suno_EC_2"],["acestep_ED_1","suno_ED_1"],["mureka_EC_1","suno_EC_1"],["mureka_EA_1","suno_EA_2"],["acestep_EA_2","mureka_EA_1"],["mureka_EA_1","suno_EA_1"],["acestep_EB_1","suno_EB_2"],["mureka_EC_1","suno_EC_1"],["mureka_EB_1","suno_EB_2"],["acestep_EB_2","mureka_EB_1"],["acestep_EC_1","suno_EC_2"],["acestep_EA_2","suno_EA_2"],["acestep_ED_1","suno_ED_2"],["mureka_ED_2","suno_ED_2"],["acestep_EC_2","suno_EC_1"],["acestep_EB_1","mureka_EB_1"],["mureka_ED_1","suno_ED_1"],["acestep_EA_2","mureka_EA_1"],["mureka_ED_1","suno_ED_2"],["acestep_EB_1","suno_EB_1"]],"16":[["acestep_EA_1","suno_EA_1"],["mureka_EC_1","suno_EC_2"],["acestep_EC_2","suno_EC_1"],["acestep_ED_2","suno_ED_1"],["acestep_EC_1","mureka_EC_1"],["acestep_EB_2","suno_EB_2"],["acestep_EA_1","mureka_EA_2"],["mureka_EA_2","suno_EA_2"],["acestep_EB_2","suno_EB_1"],["acestep_ED_1","mureka_ED_2"],["acestep_EC_2","mureka_EC_1"],["mureka_ED_2","suno_ED_1"],["acestep_ED_2","mureka_ED_1"],["acestep_EB_1","mureka_EB_2"],["acestep_EB_1","suno_EB_2"],["acestep_EB_2","mureka_EB_2"],["mureka_ED_1","suno_ED_1"],["mureka_EA_2","suno_EA_1"],["acestep_EC_2","mureka_EC_2"],["acestep_EB_1","suno_EB_1"],["acestep_ED_2","suno_ED_2"],["acestep_EA_1","suno_EA_2"],["mureka_EB_2","suno_EB_2"],["acestep_EB_2","mureka_EB_2"],["acestep_EA_1","mureka_EA_1"],["acestep_EC_1","suno_EC_1"],["acestep_EA_1","suno_EA_2"],["mureka_EC_2","suno_EC_1"],["acestep_ED_2","mureka_ED_2"],["acestep_ED_1","mureka_ED_2"]],"17":[["acestep_EA_2","mureka_EA_2"],["mureka_ED_2","suno_ED_2"],["acestep_ED_1","suno_ED_1"],["acestep_EB_1","mureka_EB_1"],["mureka_EA_1","suno_EA_2"],["acestep_ED_1","mureka_ED_1"],["acestep_EC_2","suno_EC_2"],["mureka_EC_1","suno_EC_2"],["mureka_EA_1","suno_EA_1"],["acestep_EC_1","mureka_EC_1"],["mureka_ED_2","suno_ED_1"],["acestep_ED_1","suno_ED_2"],["mureka_EC_2","suno_EC_2"],["acestep_EA_2","suno_EA_2"],["acestep_EB_1","mureka_EB_2"],["mureka_EA_2","suno_EA_2"],["mureka_EB_2","suno_EB_2"],["acestep_EA_2","mureka_EA_1"],["acestep_EC_2","mureka_EC_2"],["mureka_EB_1","suno_EB_2"],["mureka_ED_2","suno_ED_2"],["acestep_EC_1","suno_EC_2"],["mureka_EA_1","suno_EA_2"],["acestep_ED_2","mureka_ED_2"],["acestep_EA_2","suno_EA_1"],["mureka_EB_1","suno_EB_1"],["acestep_EB_2","mureka_EB_1"],["acestep_EC_1","mureka_EC_2"],["acestep_EA_2","suno_EA_1"],["acestep_ED_2","mureka_ED_1"]],"18":[["acestep_EC_1","suno_EC_1"],["acestep_EC_2","mureka_EC_1"],["mureka_ED_1","suno_ED_2"],["acestep_EB_1","suno_EB_2"],["acestep_EC_2","suno_EC_1"],["acestep_ED_1","suno_ED_2"],["mureka_EC_2","suno_EC_1"],["acestep_EA_1","mureka_EA_2"],["acestep_ED_2","mureka_ED_2"],["mureka_EA_1","suno_EA_1"],["acestep_EC_2","suno_EC_2"],["mureka_EC_1","suno_EC_1"],["acestep_EA_2","mureka_EA_2"],["acestep_ED_2","suno_ED_2"],["acestep_EA_1","mureka_EA_1"],["mureka_EB_2","suno_EB_1"],["mureka_EC_1","suno_EC_1"],["mureka_EA_2","suno_EA_1"],["acestep_EB_2","suno_EB_1"],["acestep_EB_1","mureka_EB_1"],["acestep_EC_1","suno_EC_1"],["mureka_EB_1","suno_EB_1"],["acestep_EA_2","suno_EA_2"],["acestep_ED_2","suno_ED_1"],["acestep_EB_1","suno_EB_1"],["acestep_EB_1","mureka_EB_1"],["acestep_ED_1","mureka_ED_1"],["acestep_EA_1","suno_EA_1"],["acestep_EB_2","suno_EB_2"],["mureka_ED_1","suno_ED_1"]],"19":[["mureka_ED_1","suno_ED_2"],["mureka_EB_1","suno_EB_2"],["acestep_ED_1","suno_ED_1"],["mureka_EB_2","suno_EB_2"],["mureka_EC_1","suno_EC_2"],["acestep_ED_1","suno_ED_1"],["acestep_EA_1","mureka_EA_2"],["acestep_ED_1","mureka_ED_2"],["acestep_EB_1","mureka_EB_2"],["acestep_EB_2","mureka_EB_1"],["acestep_EA_1","mureka_EA_1"],["mureka_EA_2","suno_EA_2"],["acestep_EA_2","mureka_EA_2"],["acestep_EB_2","mureka_EB_2"],["acestep_ED_1","mureka_ED_1"],["mureka_EB_2","suno_EB_1"],["acestep_EC_1","suno_EC_2"],["mureka_ED_2","suno_ED_1"],["acestep_ED_1","suno_ED_2"],["acestep_EC_1","mureka_EC_1"],["acestep_EC_2","mureka_EC_2"],["mureka_EB_1","suno_EB_2"],["mureka_EC_2","suno_EC_2"],["acestep_EB_2","suno_EB_2"],["mureka_EA_1","suno_EA_2"],["acestep_EC_1","mureka_EC_2"],["mureka_ED_1","suno_ED_2"],["acestep_EA_1","suno_EA_1"],["mureka_EC_2","suno_EC_1"],["acestep_EA_1","suno_EA_2"]],"20":[["acestep_EC_2","suno_EC_2"],["mureka_EB_1","suno_EB_1"],["acestep_EB_1","suno_EB_1"],["mureka_EC_2","suno_EC_2"],["mureka_EB_2","suno_EB_1"],["mureka_ED_1","suno_ED_1"],["acestep_EA_2","mureka_EA_1"],["acestep_EB_1","suno_EB_2"],["mureka_EC_2","suno_EC_2"],["acestep_ED_2","mureka_ED_2"],["acestep_EC_2","suno_EC_1"],["acestep_ED_2","suno_ED_1"],["acestep_EA_2","suno_EA_2"],["mureka_EA_1","suno_EA_1"],["acestep_EC_1","mureka_EC_1"],["mureka_EC_1","suno_EC_2"],["acestep_EA_2","suno_EA_1"],["mureka_EA_2","suno_EA_1"],["acestep_EC_1","suno_EC_2"],["acestep_EB_2","mureka_EB_1"],["acestep_EC_2","mureka_EC_1"],["mureka_ED_2","suno_ED_1"],["acestep_EB_1","mureka_EB_2"],["acestep_ED_2","mureka_ED_1"],["mureka_ED_2","suno_ED_2"],["acestep_EB_1","suno_EB_2"],["acestep_EC_1","mureka_EC_1"],["acestep_EB_2","suno_EB_1"],["acestep_ED_2","suno_ED_2"],["mureka_EA_1","suno_EA_2"]],"21":[["acestep_ED_1","suno_ED_2"],["mureka_EC_2","suno_EC_1"],["acestep_EB_2","mureka_EB_1"],["acestep_ED_2","suno_ED_2"],["acestep_EC_1","suno_EC_1"],["acestep_ED_1","mureka_ED_2"],["acestep_EB_2","mureka_EB_2"],["mureka_EA_2","suno_EA_2"],["acestep_EB_2","mureka_EB_2"],["acestep_EB_1","mureka_EB_1"],["acestep_ED_2","mureka_ED_1"],["acestep_EC_2","mureka_EC_1"],["acestep_ED_1","mureka_ED_1"],["acestep_EA_1","mureka_EA_1"],["acestep_ED_2","mureka_ED_2"],["acestep_EC_2","suno_EC_1"],["acestep_EA_1","suno_EA_2"],["acestep_EC_2","mureka_EC_2"],["mureka_EB_1","suno_EB_2"],["mureka_EC_2","suno_EC_1"],["acestep_EA_2","mureka_EA_2"],["acestep_ED_2","mureka_ED_2"],["acestep_EA_2","suno_EA_2"],["acestep_EA_1","mureka_EA_2"],["acestep_EC_1","mureka_EC_2"],["acestep_EA_1","suno_EA_1"],["mureka_EB_2","suno_EB_2"],["mureka_EC_1","suno_EC_1"],["acestep_EB_2","suno_EB_2"],["mureka_ED_2","suno_ED_2"]],"22":[["acestep_EA_1","mureka_EA_1"],["acestep_ED_2","suno_ED_1"],["mureka_EC_2","suno_EC_2"],["mureka_EB_2","suno_EB_2"],["acestep_ED_1","suno_ED_1"],["acestep_EC_1","suno_EC_2"],["mureka_ED_1","suno_ED_1"],["acestep_EC_1","suno_EC_1"],["mureka_EB_2","suno_EB_1"],["acestep_EB_2","suno_EB_1"],["mureka_ED_1","suno_ED_2"],["acestep_EC_2","suno_EC_2"],["mureka_EA_1","suno_EA_2"],["acestep_EA_1","mureka_EA_1"],["mureka_EB_1","suno_EB_1"],["acestep_EB_1","suno_EB_2"],["acestep_EA_2","suno_EA_1"],["acestep_EB_1","suno_EB_1"],["mureka_EA_1","suno_EA_1"],["acestep_EB_1","mureka_EB_2"],["acestep_EC_2","suno_EC_2"],["acestep_ED_1","mureka_ED_2"],["acestep_EA_2","mureka_EA_1"],["acestep_EC_1","mureka_EC_2"],["acestep_EA_1","mureka_EA_2"],["mureka_EB_1","suno_EB_1"],["mureka_ED_2","suno_ED_1"],["acestep_ED_1","mureka_ED_1"],["mureka_EA_2","suno_EA_1"],["mureka_EC_1","suno_EC_2"]],"23":[["mureka_EC_1","suno_EC_1"],["mureka_EA_2","suno_EA_1"],["acestep_EA_1","suno_EA_2"],["acestep_EB_1","mureka_EB_1"],["acestep_EC_2","mureka_EC_2"],["acestep_ED_2","suno_ED_2"],["acestep_EB_2","suno_EB_2"],["acestep_EA_1","suno_EA_1"],["mureka_EB_1","suno_EB_2"],["acestep_EB_2","mureka_EB_2"],["acestep_EB_1","suno_EB_1"],["mureka_EC_1","suno_EC_2"],["mureka_ED_1","suno_ED_1"],["acestep_EA_2","suno_EA_2"],["acestep_EC_1","mureka_EC_1"],["mureka_EA_2","suno_EA_2"],["acestep_EB_2","suno_EB_1"],["acestep_EC_2","mureka_EC_1"],["acestep_EC_1","suno_EC_2"],["mureka_ED_2","suno_ED_2"],["acestep_EA_2","mureka_EA_1"],["acestep_EC_1","mureka_EC_1"],["acestep_ED_2","suno_ED_1"],["mureka_EB_1","suno_EB_2"],["acestep_ED_2","mureka_ED_1"],["acestep_ED_1","suno_ED_2"],["acestep_EA_2","mureka_EA_2"],["acestep_EA_2","mureka_EA_2"],["acestep_EC_2","suno_EC_1"],["acestep_EB_2","mureka_EB_1"]],"24":[["acestep_EB_2","suno_EB_2"],["acestep_EA_2","suno_EA_1"],["acestep_EA_2","suno_EA_1"],["mureka_EA_1","suno_EA_2"],["mureka_EA_1","suno_EA_1"],["acestep_ED_2","mureka_ED_1"],["acestep_ED_1","suno_ED_1"],["acestep_ED_1","suno_ED_1"],["acestep_EB_1","suno_EB_2"],["acestep_EC_1","suno_EC_1"],["acestep_EC_2","mureka_EC_2"],["acestep_EA_1","suno_EA_1"],["acestep_EB_1","suno_EB_1"],["acestep_EC_2","suno_EC_1"],["mureka_EC_2","suno_EC_1"],["acestep_EB_1","mureka_EB_1"],["mureka_EB_2","suno_EB_2"],["mureka_EC_1","suno_EC_1"],["acestep_EB_1","mureka_EB_2"],["acestep_EC_1","mureka_EC_2"],["acestep_EA_1","mureka_EA_2"],["mureka_ED_2","suno_ED_1"],["mureka_EB_2","suno_EB_1"],["mureka_EC_2","suno_EC_2"],["acestep_ED_1","mureka_ED_1"],["acestep_ED_1","mureka_ED_2"],["acestep_ED_2","suno_ED_1"],["mureka_EA_1","suno_EA_1"],["acestep_ED_2","suno_ED_2"],["acestep_EA_1","suno_EA_2"]]}};
+const WITH_REF = MODE === 'abx';
+const LABELS = WITH_REF ? ['A', 'B', 'X'] : ['A', 'B'];
+
+const $ = document.getElementById('screen');
+const params = new URLSearchParams(location.search);
+const pid = (params.get('pid') || '').replace(/[^\w-]/g, '') ||
+            'P' + Math.random().toString(36).slice(2, 8).toUpperCase();
+const nPidx = Object.keys(DESIGN.assignments).length;
+let pidx = parseInt(params.get('pidx'), 10);
+if (!(pidx >= 0 && pidx < nPidx)) {                        // no valid pidx in the link: pick one, keep it on reload
+  let s = null; try { s = sessionStorage.getItem('pidx_' + pid); } catch (e) {}
+  pidx = s !== null && +s >= 0 && +s < nPidx ? +s : crypto.getRandomValues(new Uint32Array(1))[0] % nPidx;
+}
+try { sessionStorage.setItem('pidx_' + pid, String(pidx)); } catch (e) {}
+
+const rows = [];
+const FIELDS = ['participant_id', 'pidx', 'block', 'trial_kind', 'presentation_index', 'is_repeat', 'clip_A', 'clip_B',
+                'ref_X', 'pair_key', 'choice', 'chosen_clip', 'other_clip', 'listen_A', 'listen_B', 'listen_X',
+                'plays_A', 'plays_B', 'plays_X', 'rt', 'timestamp', 'user_agent'];
+
+function shuffle(a) {
+  a = a.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+const coin = () => crypto.getRandomValues(new Uint32Array(1))[0] % 2 === 0;
+const pairKey = (a, b) => [a, b].sort().join('|');
+function show(html) { $.innerHTML = html; window.scrollTo(0, 0); }
+function wait(id) { return new Promise(res => document.getElementById(id).addEventListener('click', res, { once: true })); }
+
+function record(row) {
+  row = { participant_id: pid, pidx, block: MODE, trial_kind: 'pair', user_agent: navigator.userAgent,
+          timestamp: new Date().toISOString(), ...row };
+  rows.push(row);
+  try { localStorage.setItem(STUDY_NAME + '_' + MODE + '_' + pid, JSON.stringify(rows)); } catch (e) {}
+  if (ENDPOINT) {
+    fetch(ENDPOINT, { method: 'POST', mode: 'no-cors', keepalive: true,
+                      headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(row) }).catch(() => {});
+  }
+}
+
+/* Trial list: this participant's 30 pairs (27 distinct + 3 repeated), shuffled, sides randomized, X balanced. */
+function buildTrials() {
+  const items = shuffle(DESIGN.assignments[String(pidx)].map(p => p.slice()));
+  const seen = new Set();
+  const trials = items.map(([a, b]) => {
+    const k = pairKey(a, b), repeat = seen.has(k); seen.add(k);
+    return coin() ? { a, b, repeat } : { a: b, b: a, repeat };
+  });
+  if (WITH_REF) {
+    let refs = [];
+    while (refs.length < trials.length) refs = refs.concat(REFS);
+    refs = shuffle(refs.slice(0, trials.length));
+    trials.forEach((t, i) => t.x = refs[i]);
+  }
+  return trials;
+}
+
+function pairTrial(t, idx, n) {
+  return new Promise(resolve => {
+    const clip = { A: t.a, B: t.b }; if (WITH_REF) clip.X = t.x;
+    const au = {}, heard = {}, plays = {};
+    LABELS.forEach(L => { au[L] = new Audio(AUDIO_DIR + clip[L] + EXT); au[L].preload = 'auto'; heard[L] = 0; plays[L] = 0; });
+    let cur = null, t0 = 0, done = false;
+    const rt0 = performance.now();
+
+    show(`
+      <div class="progress"><div style="width:${Math.round((idx - 1) / n * 100)}%"></div></div>
+      <h1>Pair ${idx} of ${n}</h1>
+      <p><b>${QUESTION}</b></p>
+      <div class="clips">${LABELS.map(L => `
+        <div class="clip"><button data-l="${L}" id="p${L}">&#9654;&nbsp;${L === 'X' ? 'X (reference)' : L}</button>
+        <div class="st" id="s${L}"></div></div>`).join('')}</div>
+      <p class="muted center" id="hint"></p>
+      <div class="choose">
+        <button class="primary" id="chA" disabled>A is better</button>
+        <button class="primary" id="chB" disabled>B is better</button>
+      </div>
+      <p class="muted center">You can replay any clip. The choice buttons unlock after you have heard a few seconds of each clip.</p>`);
+
+    const need = L => { const d = au[L].duration; return Math.min(MIN_LISTEN, 0.8 * (isFinite(d) ? d : Infinity)); };
+    const dur = L => { const d = au[L].duration; return isFinite(d) ? d : Infinity; };
+    const live = L => heard[L] + (cur === L ? Math.min((performance.now() - t0) / 1000, dur(L)) : 0);
+    const halt = () => {
+      if (cur) { heard[cur] += Math.min((performance.now() - t0) / 1000, dur(cur)); au[cur].pause(); au[cur].currentTime = 0; cur = null; }
+    };
+    const start = L => {
+      if (cur === L) { halt(); return; }                    // second click on the playing clip = stop
+      halt();
+      au[L].currentTime = 0;
+      au[L].play().catch(() => { const h = document.getElementById('hint'); if (!done && h) h.textContent = 'Could not play audio. Check your volume and connection.'; if (cur === L) cur = null; });
+      cur = L; t0 = performance.now(); plays[L]++;
+    };
+    LABELS.forEach(L => {
+      document.getElementById('p' + L).addEventListener('click', () => start(L));
+      au[L].addEventListener('ended', () => { if (cur === L) halt(); });
+      au[L].addEventListener('error', () => { const h = document.getElementById('hint'); if (!done && h) h.textContent = 'A clip failed to load. Please reload the page.'; });
+    });
+
+    const tick = setInterval(() => {
+      if (cur && performance.now() - t0 >= dur(cur) * 1000) halt();
+      let all = true;
+      LABELS.forEach(L => {
+        const ok = live(L) >= need(L), s = document.getElementById('s' + L);
+        s.textContent = ok ? '✓ heard' : (plays[L] ? 'keep listening' : 'not played');
+        s.className = 'st' + (ok ? ' ok' : '');
+        document.getElementById('p' + L).classList.toggle('on', cur === L);
+        if (!ok) all = false;
+      });
+      document.getElementById('chA').disabled = !all;
+      document.getElementById('chB').disabled = !all;
+    }, 100);
+
+    const choose = c => {
+      if (done) return; done = true; halt(); clearInterval(tick);
+      LABELS.forEach(L => { try { au[L].pause(); au[L].src = ''; } catch (e) {} });
+      resolve({ choice: c, rt: +((performance.now() - rt0) / 1000).toFixed(2), heard, plays });
+    };
+    document.getElementById('chA').addEventListener('click', () => { if (!document.getElementById('chA').disabled) choose('A'); });
+    document.getElementById('chB').addEventListener('click', () => { if (!document.getElementById('chB').disabled) choose('B'); });
+  });
+}
+
+async function main() {
+  show(`
+    <h1>AIGC Electronic Music Evaluation (AB)</h1>
+    <p>In each trial you will hear two clips, A and B. It takes about 15 minutes.</p>
+    <ul>
+      <li>Use <b>headphones</b> in a quiet place, and set a comfortable volume before you start. Please do not change it during the study.</li>
+      <li>Choose the clip that is <b>better overall</b>.</li>
+      <li>You can replay any clip as often as you like. You must choose one every time; there are no right answers.</li>
+      <li>There are 30 trials. Some pairs come back later, which is normal.</li>
+    </ul>
+    <p class="muted">[IRB CONSENT TEXT HERE: purpose, voluntary participation, what data is collected, how it is stored,
+       contact information. Replace with your approved wording.]</p>
+    <div class="center"><button class="primary" id="go">I consent &mdash; start</button></div>
+    <p class="muted center">Your participant code: <b>${pid}</b></p>`);
+  await wait('go');
+
+  const trials = buildTrials();
+  for (let i = 0; i < trials.length; i++) {
+    const t = trials[i];
+    const r = await pairTrial(t, i + 1, trials.length);
+    const chosen = r.choice === 'A' ? t.a : t.b, other = r.choice === 'A' ? t.b : t.a;
+    record({ presentation_index: i + 1, is_repeat: t.repeat, clip_A: t.a, clip_B: t.b, ref_X: WITH_REF ? t.x : '',
+             pair_key: pairKey(t.a, t.b), choice: r.choice, chosen_clip: chosen, other_clip: other,
+             listen_A: +r.heard.A.toFixed(2), listen_B: +r.heard.B.toFixed(2), listen_X: WITH_REF ? +r.heard.X.toFixed(2) : '',
+             plays_A: r.plays.A, plays_B: r.plays.B, plays_X: WITH_REF ? r.plays.X : '', rt: r.rt });
+  }
+
+  const next = params.get('next');
+  const nextOk = next && /^[\w./-]+\.html$/.test(next) && !next.includes('..');
+  show(`<h1>Thank you!</h1>
+        <p>${nextOk ? 'This part is complete.' : 'Your responses have been recorded. You can now close this page.'}</p>
+        ${nextOk ? `<div class="center"><a href="${next}?pid=${encodeURIComponent(pid)}&pidx=${pidx}"><button class="primary">Continue to the next part</button></a></div>` : ''}
+        <p class="muted">Your participant code: <b>${pid}</b></p>`);
+}
+main();
+window.__rows = rows;   // for testing
+</script>
+</body>
+</html>
