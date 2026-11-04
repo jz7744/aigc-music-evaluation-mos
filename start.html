@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AIGC Electronic Music Evaluation</title>
+<style>
+  :root { --bg:#fafaf7; --fg:#1d1d1b; --muted:#6b6b66; --card:#fff; --line:#dcdcd4; --accent:#2f5d50; --accent-fg:#fff; --ok:#2f7d4f; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161715; --fg:#ecece6; --muted:#9a9a92; --card:#1f201e; --line:#363733; --accent:#7fb8a4; --accent-fg:#10201a; --ok:#7fc79a; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:17px/1.55 system-ui,-apple-system,Segoe UI,sans-serif; }
+  main { max-width:640px; margin:0 auto; padding:32px 16px 64px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:28px 24px; }
+  h1 { font-size:1.5rem; margin:0 0 12px; }
+  p { margin:0 0 14px; }
+  .muted { color:var(--muted); font-size:.92rem; }
+  button { font:inherit; cursor:pointer; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--fg); padding:12px 20px; }
+  button.primary { background:var(--accent); color:var(--accent-fg); border-color:var(--accent); }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  button:focus-visible { outline:3px solid var(--accent); outline-offset:2px; }
+  .center { text-align:center; }
+  .progress { height:6px; background:var(--line); border-radius:3px; margin-bottom:24px; overflow:hidden; }
+  .progress > div { height:100%; background:var(--accent); width:0; transition:width .2s; }
+  .clips { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin:18px 0 8px; }
+  .clip { text-align:center; }
+  .clip button { width:100%; padding:18px 6px; font-size:1.1rem; }
+  .clip button.on { background:var(--accent); color:var(--accent-fg); border-color:var(--accent); }
+  .clip .st { font-size:.85rem; color:var(--muted); margin-top:4px; min-height:1.3em; }
+  .clip .st.ok { color:var(--ok); }
+  .choose { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:22px 0 6px; }
+  .choose button { padding:16px 8px; }
+  ul { padding-left:20px; margin:0 0 14px; }
+</style>
+</head><body>
+<main><div class="card" id="screen">
+<h1>AIGC Electronic Music Evaluation</h1>
+<p>This study has <b>three short parts</b>, about 40 minutes in total. You will listen to AI-generated electronic music clips and
+   rate them or compare them. Each part has its own instructions, and the three parts open one after another from this page.</p>
+<ul>
+  <li>Use <b>headphones</b> in a quiet place and set a comfortable volume before you start. Please do not change it during the study.</li>
+  <li>Please finish all three parts in one sitting, and do not close the page between parts.</li>
+  <li>There are no right answers; we want your own impression.</li>
+</ul>
+<p class="muted">[IRB CONSENT TEXT HERE: purpose, voluntary participation, what data is collected, how it is stored,
+   contact information. Replace with your approved wording.]</p>
+<div class="center"><button class="primary" id="go">I consent &mdash; start</button></div>
+</div></main>
+<script>
+const params = new URLSearchParams(location.search);
+const N = 25;                                    // number of pair assignments (pidx 0..24)
+let pidx = parseInt(params.get('pidx'), 10);
+if (!(pidx >= 0 && pidx < N)) pidx = crypto.getRandomValues(new Uint32Array(1))[0] % N;
+const pid = (params.get('pid') || '').replace(/[^\w-]/g, '') || 'P' + Math.random().toString(36).slice(2, 8).toUpperCase();
+// Counterbalanced order: MOS always in the middle, the two pairwise tasks swap ends.
+const order = pidx % 2 === 0 ? ['ab.html', 'index.html', 'choice.html'] : ['choice.html', 'index.html', 'ab.html'];
+document.getElementById('go').onclick = () => {
+  location.href = order[0] + '?pid=' + encodeURIComponent(pid) + '&pidx=' + pidx + '&c=1&next=' + order.slice(1).join(',');
+};
+</script></body></html>
