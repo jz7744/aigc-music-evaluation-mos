@@ -191,6 +191,11 @@ async function main() {
        contact information. Replace with your approved wording.]</p>
     <div class="center"><button class="primary" id="go">I consent &mdash; start</button></div>
     <p class="muted center">Your participant code: <b>${pid}</b></p>`);
+
+  if (params.get('c') === '1') {          // consent already given on the start page
+    document.querySelectorAll('.muted').forEach(e => { if (/IRB CONSENT/.test(e.textContent)) e.remove(); });
+    const g = document.getElementById('go'); if (g) g.innerHTML = 'Start';
+  }
   await wait('go');
 
   const trials = buildTrials();
@@ -204,11 +209,13 @@ async function main() {
              plays_A: r.plays.A, plays_B: r.plays.B, plays_X: WITH_REF ? r.plays.X : '', rt: r.rt });
   }
 
-  const next = params.get('next');
-  const nextOk = next && /^[\w./-]+\.html$/.test(next) && !next.includes('..');
+
+  const nextList = (params.get('next') || '').split(',').filter(s => /^[\w-]+\.html$/.test(s));
+  const nxt = nextList[0];
+  const nxtUrl = nxt ? nxt + '?pid=' + encodeURIComponent(pid) + '&pidx=' + pidx + '&c=1' + (nextList.length > 1 ? '&next=' + nextList.slice(1).join(',') : '') : '';
   show(`<h1>Thank you!</h1>
-        <p>${nextOk ? 'This part is complete.' : 'Your responses have been recorded. You can now close this page.'}</p>
-        ${nextOk ? `<div class="center"><a href="${next}?pid=${encodeURIComponent(pid)}&pidx=${pidx}"><button class="primary">Continue to the next part</button></a></div>` : ''}
+        <p>${nxt ? 'This part is complete. One more part to go.' : 'Your responses have been recorded. You can now close this page.'}</p>
+        ${nxt ? `<div class="center"><a href="${nxtUrl}"><button class="primary">Continue to the next part</button></a></div>` : ''}
         <p class="muted">Your participant code: <b>${pid}</b></p>`);
 }
 main();
